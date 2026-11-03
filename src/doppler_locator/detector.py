@@ -227,25 +227,21 @@ def _join_continuing_ridges(
             if continuation is first:
                 continue
             continuation_times = times[continuation.frames]
-            if continuation_times[-1] <= first_times[-1]:
+            if continuation_times[0] <= first_times[-1] or len(continuation_times) < 6:
                 continue
-            after = np.flatnonzero(continuation_times > first_times[-1])
-            if len(after) < 6:
-                continue
-            next_index = int(after[0])
-            dt = continuation_times[next_index] - first_times[-1]
-            distance = abs(continuation.frequencies[next_index] - first.frequencies[-1])
+            dt = continuation_times[0] - first_times[-1]
+            distance = abs(continuation.frequencies[0] - first.frequencies[-1])
             if dt > config.max_gap_s + times[1] - times[0] or distance > config.max_rate_hz_s * dt + 2.25 * frequency_step:
                 continue
-            tail = np.asarray(continuation.frequencies)[after]
+            tail = np.asarray(continuation.frequencies)
             tail_edge = max(3, len(tail) // 10)
             if np.median(tail[:tail_edge]) - np.median(tail[-tail_edge:]) <= 0:
                 continue
             joined.append(
                 Ridge(
-                    first.frames + [continuation.frames[i] for i in after],
-                    first.frequencies + [continuation.frequencies[i] for i in after],
-                    first.contrasts + [continuation.contrasts[i] for i in after],
+                    first.frames + continuation.frames,
+                    first.frequencies + continuation.frequencies,
+                    first.contrasts + continuation.contrasts,
                 )
             )
     return joined

@@ -45,4 +45,12 @@ def test_reference_curves_survive_context_changes(start, end, target_start, targ
         start_hz, end_hz = float(np.median(first)), float(np.median(last))
         if start_hz >= 380 and end_hz <= 450 and start_hz - end_hz >= 60:
             matches.append(candidate)
-    assert matches
+    assert matches, [
+        (
+            round(float(candidate.times[0]), 2),
+            round(float(candidate.times[-1]), 2),
+            round(float(np.median(candidate.frequencies[: max(3, len(candidate.times) // 10)])), 1),
+            round(float(np.median(candidate.frequencies[-max(3, len(candidate.times) // 10) :])), 1),
+        )
+        for candidate in candidates
+    ]

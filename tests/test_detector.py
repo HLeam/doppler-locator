@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 
 from doppler_locator.audio import spectrogram
-from doppler_locator.detector import DetectorConfig, detect, score_ridge
+from doppler_locator.detector import (
+    DetectorConfig,
+    Ridge,
+    _join_continuing_ridges,
+    detect,
+    score_ridge,
+)
 
 
 def analyze(path, **kwargs):
@@ -80,6 +86,43 @@ def test_short_coherent_sweep_survives_crop_phase(phase):
     candidate = score_ridge(t, f, np.full_like(t, 8), 0.5, 5, config)
     assert candidate is not None
     assert candidate.times[-1] - candidate.times[0] >= 15
+
+
+def test_continuing_ridge_joins_after_a_real_gap():
+    times = np.arange(0, 40, 0.5)
+    first_frames = list(range(40))
+    next_frames = list(range(42, 80))
+    first = Ridge(
+        first_frames,
+        list(500 - 7 * times[first_frames]),
+        [8.0] * len(first_frames),
+    )
+    continuation = Ridge(
+        next_frames,
+        list(356 - 2 * (times[next_frames] - times[next_frames[0]])),
+        [8.0] * len(next_frames),
+    )
+    result = _join_continuing_ridges([first, continuation], times, 1.0, DetectorConfig())
+    assert len(result) == 3
+    assert result[-1].frames == first_frames + next_frames
+
+
+def test_concurrent_descending_ridges_are_not_joined():
+    times = np.arange(0, 40, 0.5)
+    first_frames = list(range(40))
+    concurrent_frames = list(range(30, 76))
+    first = Ridge(
+        first_frames,
+        list(500 - 7 * times[first_frames]),
+        [8.0] * len(first_frames),
+    )
+    concurrent = Ridge(
+        concurrent_frames,
+        list(390 - 6 * (times[concurrent_frames] - times[concurrent_frames[0]])),
+        [8.0] * len(concurrent_frames),
+    )
+    result = _join_continuing_ridges([first, concurrent], times, 1.0, DetectorConfig())
+    assert result == [first, concurrent]
 
 
 @pytest.mark.parametrize(

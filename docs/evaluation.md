@@ -32,20 +32,20 @@ These are historical results from before the ridge correction below. There are n
 
 The whole-hour second-example miss came from crop-dependent frame/bin phase plus a broken ridge continuation. In continuous context, the main fragment ended at 376.6 Hz; the next visible continuation was 358.5 Hz, a jump just beyond the former link allowance. Frames and power averages now align to recording time zero, peak association uses a minimum-cost one-to-one assignment, and a descending ridge may continue through a compatible overlapping ridge. This keeps the shared evidence consistent between crops and full scans.
 
-## Corrected detector: context comparison
+## Current detector: context comparison
 
-The same defaults (FFT 8024, hop 4012, 0.5015 s power bins, 300–600 Hz) were used for padded clips, larger intervals, and the full recording. The following frequency paths were inspected in memory; no audio-derived output files were written:
+The same defaults (FFT 8024, hop 4012, 0.5015 s power bins, 300–600 Hz) were used for padded clips, larger intervals, and the full recording. Frames and averaging bins align to recording time zero. No audio-derived output files were written.
 
-| Example/context | Candidate interval | Endpoint medians | Score |
-|---|---|---|---|
-| First, 1200–1320 s | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
-| First, 900–1500 s | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
-| First, whole recording | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
-| Second, 2070–2205 s | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
-| Second, 1800–2400 s | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
-| Second, whole recording | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
+| Example/context | Candidate count | Matching interval | Endpoint medians |
+|---|---:|---|---|
+| First, 1200–1320 s | 1 | 1255.55–1285.14 s | 497→368 Hz |
+| First, 900–1500 s | 2 | 1255.55–1285.14 s | 497→368 Hz |
+| First, whole recording | 5 | 1255.55–1285.14 s | 497→368 Hz |
+| Second, 2070–2205 s | 0 | None | — |
+| Second, 1800–2400 s | 0 | None | — |
+| Second, whole recording | 5 | None | — |
 
-Both supplied development examples now produce the same candidate frequency path in padded, larger, and full-hour contexts. This is a development check, not an independent recall or precision estimate. Negative synthetic controls remain in the focused detector suite. Crossings and weak peaks can still split or swap tracks, and the scores are heuristic rankings rather than probabilities.
+The first example is detected in all contexts. The second remains unresolved: in the full scan, a descending fragment ends at 376.6 Hz while a separate ridge near 358.5 Hz is already being observed concurrently. Joining the latter's tail produced a plausible 445→348 Hz candidate, but the two observed ridges may be independent tones, so the current detector refuses that join. The remaining 18.56-second fragment is nearly linear and does not pass the current curve-gain score. A sound next step is multi-hypothesis tracking through ambiguous peak collisions, preserving both paths until later evidence distinguishes a continuation; the present one-ridge assignment cannot establish that relationship. Negative synthetic controls remain in the focused detector suite. These development examples are not independent recall or precision estimates, and scores are heuristic rankings rather than probabilities.
 
 ### Visual review (images kept local)
 
