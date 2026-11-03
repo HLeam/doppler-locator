@@ -218,11 +218,6 @@ def _join_continuing_ridges(
     joined = list(ridges)
     for first in ridges:
         first_times = times[first.frames]
-        if np.ptp(first_times) < config.min_duration_s:
-            continue
-        n_edge = max(3, len(first.frequencies) // 10)
-        if np.median(first.frequencies[:n_edge]) - np.median(first.frequencies[-n_edge:]) < config.min_drop_hz:
-            continue
         for continuation in ridges:
             if continuation is first:
                 continue

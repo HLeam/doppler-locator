@@ -88,23 +88,38 @@ def test_short_coherent_sweep_survives_crop_phase(phase):
     assert candidate.times[-1] - candidate.times[0] >= 15
 
 
-def test_continuing_ridge_joins_after_a_real_gap():
-    times = np.arange(0, 40, 0.5)
-    first_frames = list(range(40))
-    next_frames = list(range(42, 80))
-    first = Ridge(
-        first_frames,
-        list(500 - 7 * times[first_frames]),
-        [8.0] * len(first_frames),
-    )
-    continuation = Ridge(
-        next_frames,
-        list(356 - 2 * (times[next_frames] - times[next_frames[0]])),
-        [8.0] * len(next_frames),
-    )
+def test_short_low_drop_fragment_joins_later_nonoverlapping_continuation():
+    times = np.arange(0, 31, 0.5)
+    first_frames = list(range(20))
+    next_frames = list(range(22, len(times)))
+
+    def curve(t):
+        return 420 - 85 * np.tanh((t - 15) / 6)
+
+    first = Ridge(first_frames, list(curve(times[first_frames])), [8.0] * len(first_frames))
+    continuation = Ridge(next_frames, list(curve(times[next_frames])), [8.0] * len(next_frames))
+    assert np.ptp(times[first_frames]) < DetectorConfig().min_duration_s
+    assert np.ptp(first.frequencies) < DetectorConfig().min_drop_hz
+    assert score_ridge(
+        times[first.frames],
+        np.asarray(first.frequencies),
+        np.asarray(first.contrasts),
+        0.5,
+        1.0,
+        DetectorConfig(),
+    ) is None
     result = _join_continuing_ridges([first, continuation], times, 1.0, DetectorConfig())
     assert len(result) == 3
     assert result[-1].frames == first_frames + next_frames
+    candidate = score_ridge(
+        times[result[-1].frames],
+        np.asarray(result[-1].frequencies),
+        np.asarray(result[-1].contrasts),
+        0.5,
+        1.0,
+        DetectorConfig(),
+    )
+    assert candidate is not None
 
 
 def test_concurrent_descending_ridges_are_not_joined():
