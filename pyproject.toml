@@ -1,0 +1,6 @@
+[project]
+name = "doppler-locator"
+version = "0.1.0"
+description = "Reproducible aircraft Doppler-curve analysis experiments"
+requires-python = ">=3.11"
+dependencies = []
