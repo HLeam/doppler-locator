@@ -39,9 +39,9 @@ def spectrogram(
 ) -> Spectrogram:
     """Average consecutive Hann-STFT powers; never mix opposing stereo phases.
 
-    Chunk size affects only IO/FFT batches, not frame/bin boundaries. Frames
-    have no padding. Times are absolute window-center means, in seconds.
-    The final incomplete averaging group is retained, if it has full frames.
+    FFT frame and averaging-bin boundaries are anchored at recording time zero,
+    so overlapping crops use the same frames. Frames have no padding. Times
+    are absolute window-center means, in seconds; incomplete bins are omitted.
     """
     hop = n_fft // 2 if hop is None else hop
     scalars = [start, fmin, fmax, time_step, chunk_seconds]
@@ -66,10 +66,15 @@ def spectrogram(
             raise ValueError("right channel requested from mono recording")
         first_sample = round(start * fs)
         last_sample = min(round(stop * fs), len(audio))
-        n_frames = 1 + (last_sample - first_sample - n_fft) // hop
-        if n_frames < 1:
-            raise ValueError("selected interval is shorter than one FFT window")
         group = max(1, round(time_step * fs / hop))
+        first_bin = (first_sample + hop * group - 1) // (hop * group)
+        first_group_sample = first_bin * hop * group
+        last_frame = (last_sample - n_fft) // hop
+        first_frame = first_bin * group
+        n_bins = (last_frame - first_frame + 1) // group
+        if n_bins < 1:
+            raise ValueError("selected interval is shorter than one complete averaged FFT bin")
+        n_frames = n_bins * group
         bins_per_chunk = max(1, int(chunk_seconds * fs / (hop * group)))
         batch_frames = bins_per_chunk * group
         freq = rfftfreq(n_fft, 1 / fs)
@@ -80,7 +85,7 @@ def spectrogram(
         powers, times = [], []
         for offset in range(0, n_frames, batch_frames):
             count = min(batch_frames, n_frames - offset)
-            audio.seek(first_sample + offset * hop)
+            audio.seek(first_group_sample + offset * hop)
             samples = audio.read(n_fft + (count - 1) * hop, dtype="float32", always_2d=True)
             if not np.all(np.isfinite(samples)):
                 raise ValueError("audio contains non-finite samples")
@@ -93,7 +98,7 @@ def spectrogram(
             for local in range(0, count, group):
                 size = min(group, count - local)
                 powers.append(power[local : local + size].mean(axis=0))
-                center = first_sample + (offset + local + (size - 1) / 2) * hop + n_fft / 2
+                center = first_group_sample + (offset + local + (size - 1) / 2) * hop + n_fft / 2
                 times.append(center / fs)
     db = 10 * np.log10(np.maximum(np.asarray(powers), 1e-20))
     return Spectrogram(np.asarray(times), freq[band], db, fs, n_fft, hop, group)

@@ -21,9 +21,18 @@ def test_exact_8024_native_rate_and_absolute_time(make_audio):
     assert s.hop == 4012
     assert s.frames_per_bin == 6
     assert np.diff(s.frequencies) == pytest.approx(48000 / 8024)
-    assert s.times[0] == pytest.approx(1 + (2.5 * 4012 + 8024 / 2) / 48000)
+    assert s.times[0] == pytest.approx(2 * 6 * 4012 / 48000 + (2.5 * 4012 + 8024 / 2) / 48000)
     assert s.times[-1] < 2.8
     assert abs(s.frequencies[np.argmax(s.power_db.mean(axis=0))] - 420) < 6
+
+
+def test_overlapping_crops_share_recording_aligned_spectral_evidence(make_audio):
+    path = make_audio("curve", duration=8, fs=4000)
+    whole = spectrogram(path, n_fft=800, fmin=300, fmax=600)
+    crop = spectrogram(path, start=1.13, end=6.47, n_fft=800, fmin=300, fmax=600)
+    selected = (whole.times >= crop.times[0]) & (whole.times <= crop.times[-1])
+    np.testing.assert_array_equal(crop.times, whole.times[selected])
+    np.testing.assert_allclose(crop.power_db, whole.power_db[selected], atol=1e-6)
 
 
 @pytest.mark.parametrize(

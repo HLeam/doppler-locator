@@ -1,4 +1,4 @@
-# Baseline evaluation and limitations
+# Evaluation and limitations
 
 ## Plan and scope
 
@@ -17,7 +17,7 @@ uv run --frozen python scripts/evaluate_reference.py \
 
 Use the WAV identified in [source.md](source.md). The script runs the standard CLI without detector overrides: 300–600 Hz, FFT 8024, half-window hop, ~0.5 s power bins. It records temporal matches using **at least 10 seconds overlap** with each supplied interval. That is an explicit convenience check, not a segment-level ground-truth metric: inspect frequency ridges in the images too. The detector never receives the label times. Event IDs restart in each run.
 
-## Observed results
+## Initial baseline (before ridge correction)
 
 | Analysis | Candidate interval | Endpoint medians | Heuristic score | Interpretation |
 |---|---|---|---|---|
@@ -28,9 +28,24 @@ Use the WAV identified in [source.md](source.md). The script runs the standard C
 | Whole recording | 05:18.24–05:45.32 | 558→476 Hz | 0.698 | Unlabeled candidate, not a confirmed positive or false positive |
 | Separate 10:00–13:00 interval | None | — | — | Zero candidates; no independent ground truth |
 
-Thus the padded clips have **2/2 partial development matches**, while the default full scan has **1/2**, with one additional unlabeled candidate. Do not quote 2/2 as whole-recording recall. There are no independently verified labels from which to estimate precision or a false-positive rate. There were no extra candidates in the two padded clips, but absence of extra candidates is not proof of specificity.
+These are historical results from before the ridge correction below. There are no independently verified labels from which to estimate precision or a false-positive rate.
 
-The whole-hour second-example miss is material: changing `--start` changes the STFT averaging phase and initial linking context. In the full scan, the main descending fragment runs approximately 2126.15–2144.71 s (448→377 Hz), only 18.56 s; previously the 20 s minimum rejected it. The minimum duration is now 15 s, so a coherent fragment of that length can be scored. Another fragment around 2141.70–2154.24 s is shorter still. Greedy linking and weak/crossing peaks can still split the track; this change does not guarantee that the local recording's second example is recovered. Crop-phase regression coverage checks that near-threshold coherent sweeps remain eligible across frame offsets.
+The whole-hour second-example miss came from crop-dependent frame/bin phase plus a broken ridge continuation. In continuous context, the main fragment ended at 376.6 Hz; the next visible continuation was 358.5 Hz, a jump just beyond the former link allowance. Frames and power averages now align to recording time zero, peak association uses a minimum-cost one-to-one assignment, and a descending ridge may continue through a compatible overlapping ridge. This keeps the shared evidence consistent between crops and full scans.
+
+## Corrected detector: context comparison
+
+The same defaults (FFT 8024, hop 4012, 0.5015 s power bins, 300–600 Hz) were used for padded clips, larger intervals, and the full recording. The following frequency paths were inspected in memory; no audio-derived output files were written:
+
+| Example/context | Candidate interval | Endpoint medians | Score |
+|---|---|---|---|
+| First, 1200–1320 s | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
+| First, 900–1500 s | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
+| First, whole recording | 1255.55–1285.14 s | 497→368 Hz | 0.845 |
+| Second, 2070–2205 s | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
+| Second, 1800–2400 s | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
+| Second, whole recording | 2126.15–2154.24 s | 445→348 Hz | 0.669 |
+
+Both supplied development examples now produce the same candidate frequency path in padded, larger, and full-hour contexts. This is a development check, not an independent recall or precision estimate. Negative synthetic controls remain in the focused detector suite. Crossings and weak peaks can still split or swap tracks, and the scores are heuristic rankings rather than probabilities.
 
 ### Visual review (images kept local)
 

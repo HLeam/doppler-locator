@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.ndimage import gaussian_filter, median_filter
+from scipy.optimize import linear_sum_assignment
 from scipy.signal import find_peaks
 
 from .audio import Spectrogram
@@ -19,7 +20,7 @@ class DetectorConfig:
     max_duration_s: float = 120.0
     min_drop_hz: float = 60.0
     min_coverage: float = 0.65
-    min_curve_gain: float = 0.12
+    min_curve_gain: float = 0.05
     min_score: float = 0.65
 
     def validate(self) -> None:
@@ -86,7 +87,7 @@ def extract_ridges(spec: Spectrogram, config: DetectorConfig) -> list[Ridge]:
     """Link salient peaks greedily, one observation per ridge per time bin.
 
     A four-observation velocity estimate helps through quantized plateaus. Links
-    are limited by rate plus 1.5 frequency bins of quantization tolerance.
+    are limited by rate plus 2.25 frequency bins of quantization tolerance.
     Gaps are allowed but count against coverage. Crossing ridges can swap.
     """
     config.validate()
@@ -126,17 +127,25 @@ def extract_ridges(spec: Spectrogram, config: DetectorConfig) -> list[Ridge]:
             prediction = ridge.frequencies[-1] + velocity * dt
             for j, frequency in enumerate(frequencies):
                 distance = abs(frequency - ridge.frequencies[-1])
-                if distance <= config.max_rate_hz_s * dt + 1.5 * df:
+                if distance <= config.max_rate_hz_s * dt + 2.25 * df:
                     cost = abs(frequency - prediction) / df + 0.5 * dt / spec.time_step
                     links.append((cost, i, j))
-        used_ridges, used_peaks = set(), set()
-        for _, i, j in sorted(links):
-            if i in used_ridges or j in used_peaks:
+        if links:
+            unmatched_cost = 1e6
+            costs = np.full((len(active), len(peaks) + len(active)), unmatched_cost)
+            costs[:, : len(peaks)] = 1e12
+            for cost, i, j in links:
+                costs[i, j] = min(costs[i, j], cost)
+            rows, columns = linear_sum_assignment(costs)
+        else:
+            rows, columns = (), ()
+        used_peaks = set()
+        for i, j in zip(rows, columns):
+            if j >= len(peaks) or costs[i, j] >= unmatched_cost:
                 continue
             active[i].frames.append(frame)
             active[i].frequencies.append(float(frequencies[j]))
             active[i].contrasts.append(float(row[peaks[j]]))
-            used_ridges.add(i)
             used_peaks.add(j)
         for j, peak in enumerate(peaks):
             if j not in used_peaks:
@@ -203,12 +212,52 @@ def score_ridge(
     )
 
 
+def _join_continuing_ridges(
+    ridges: list[Ridge], times: np.ndarray, frequency_step: float, config: DetectorConfig
+) -> list[Ridge]:
+    joined = list(ridges)
+    for first in ridges:
+        first_times = times[first.frames]
+        if np.ptp(first_times) < config.min_duration_s:
+            continue
+        n_edge = max(3, len(first.frequencies) // 10)
+        if np.median(first.frequencies[:n_edge]) - np.median(first.frequencies[-n_edge:]) < config.min_drop_hz:
+            continue
+        for continuation in ridges:
+            if continuation is first:
+                continue
+            continuation_times = times[continuation.frames]
+            if continuation_times[-1] <= first_times[-1]:
+                continue
+            after = np.flatnonzero(continuation_times > first_times[-1])
+            if len(after) < 6:
+                continue
+            next_index = int(after[0])
+            dt = continuation_times[next_index] - first_times[-1]
+            distance = abs(continuation.frequencies[next_index] - first.frequencies[-1])
+            if dt > config.max_gap_s + times[1] - times[0] or distance > config.max_rate_hz_s * dt + 2.25 * frequency_step:
+                continue
+            tail = np.asarray(continuation.frequencies)[after]
+            tail_edge = max(3, len(tail) // 10)
+            if np.median(tail[:tail_edge]) - np.median(tail[-tail_edge:]) <= 0:
+                continue
+            joined.append(
+                Ridge(
+                    first.frames + [continuation.frames[i] for i in after],
+                    first.frequencies + [continuation.frequencies[i] for i in after],
+                    first.contrasts + [continuation.contrasts[i] for i in after],
+                )
+            )
+    return joined
+
+
 def detect(spec: Spectrogram, config: DetectorConfig | None = None) -> list[Candidate]:
     config = config or DetectorConfig()
     config.validate()
     ridges = extract_ridges(spec, config)
-    candidates = []
     df = float(spec.frequencies[1] - spec.frequencies[0])
+    ridges = _join_continuing_ridges(ridges, spec.times, df, config)
+    candidates = []
     # Search within long ridges too: stationary tails must not hide a sweep.
     durations = sorted(
         {config.min_duration_s, config.max_duration_s}
