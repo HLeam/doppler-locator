@@ -15,7 +15,7 @@ class DetectorConfig:
     background_hz: float = 100.0
     max_rate_hz_s: float = 12.0
     max_gap_s: float = 2.0
-    min_duration_s: float = 20.0
+    min_duration_s: float = 15.0
     max_duration_s: float = 120.0
     min_drop_hz: float = 60.0
     min_coverage: float = 0.65

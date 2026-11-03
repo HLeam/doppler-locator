@@ -72,6 +72,16 @@ def test_sparse_and_small_excursion_rejected():
     assert score_ridge(t, 420 + (f - 420) / 10, np.full_like(t, 7), 0.5, 5, config) is None
 
 
+@pytest.mark.parametrize("phase", [0.0, 0.17, 0.39])
+def test_short_coherent_sweep_survives_crop_phase(phase):
+    config = DetectorConfig()
+    t = np.arange(phase, 18.56, 0.5)
+    f = 420 - 85 * np.tanh((t - 9.28) / 3.0)
+    candidate = score_ridge(t, f, np.full_like(t, 8), 0.5, 5, config)
+    assert candidate is not None
+    assert candidate.times[-1] - candidate.times[0] >= 15
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

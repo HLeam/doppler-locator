@@ -30,7 +30,7 @@ Use the WAV identified in [source.md](source.md). The script runs the standard C
 
 Thus the padded clips have **2/2 partial development matches**, while the default full scan has **1/2**, with one additional unlabeled candidate. Do not quote 2/2 as whole-recording recall. There are no independently verified labels from which to estimate precision or a false-positive rate. There were no extra candidates in the two padded clips, but absence of extra candidates is not proof of specificity.
 
-The whole-hour second-example miss is material: changing `--start` changes the STFT averaging phase and initial linking context. In the full scan, the main descending fragment runs approximately 2126.15–2144.71 s (448→377 Hz), only 18.56 s, below the 20 s minimum. Another fragment around 2141.70–2154.24 s is shorter still. Greedy linking and weak/crossing peaks split the track. This is **not** an IO-chunk discontinuity: chunk-only invariance is tested, whereas crop invariance is not promised.
+The whole-hour second-example miss is material: changing `--start` changes the STFT averaging phase and initial linking context. In the full scan, the main descending fragment runs approximately 2126.15–2144.71 s (448→377 Hz), only 18.56 s; previously the 20 s minimum rejected it. The minimum duration is now 15 s, so a coherent fragment of that length can be scored. Another fragment around 2141.70–2154.24 s is shorter still. Greedy linking and weak/crossing peaks can still split the track; this change does not guarantee that the local recording's second example is recovered. Crop-phase regression coverage checks that near-threshold coherent sweeps remain eligible across frame offsets.
 
 ### Visual review (images kept local)
 
