@@ -38,16 +38,27 @@ def load_diagnostic_points(path, time_step):
     """
     tracks = {}
     with Path(path).open(newline="") as stream:
-        for row in csv.DictReader(stream):
-            if not {"event_id", "time_s", "frequency_hz"} <= row.keys():
-                raise ValueError("point CSV requires event_id,time_s,frequency_hz")
+        reader = csv.DictReader(stream)
+        if not reader.fieldnames or not {"event_id", "time_s", "frequency_hz"} <= set(reader.fieldnames):
+            raise ValueError("point CSV requires event_id,time_s,frequency_hz")
+        for row_number, row in enumerate(reader, start=2):
+            required = ("event_id", "time_s", "frequency_hz")
+            if None in row or any(row.get(key) is None or not row[key].strip() for key in required):
+                raise ValueError(f"point CSV row {row_number} requires event_id,time_s,frequency_hz values")
             event_id = row["event_id"]
             if not event_id or not all(c.isalnum() or c in "_-" for c in event_id):
-                raise ValueError("diagnostic event_id must contain only letters, digits, '_' or '-'")
+                raise ValueError(f"point CSV row {row_number}: event_id must contain only letters, digits, '_' or '-'")
+            try:
+                time_s = float(row["time_s"])
+                frequency_hz = float(row["frequency_hz"])
+            except ValueError as error:
+                raise ValueError(f"point CSV row {row_number}: time_s and frequency_hz must be numeric") from error
+            if not np.isfinite(time_s) or not np.isfinite(frequency_hz):
+                raise ValueError(f"point CSV row {row_number}: time_s and frequency_hz must be finite")
             point = dict(row)
             point.update(
-                time_s=float(row["time_s"]),
-                frequency_hz=float(row["frequency_hz"]),
+                time_s=time_s,
+                frequency_hz=frequency_hz,
                 source_continuity_unverified=True,
             )
             point.setdefault("association_method", "externally_selected_unverified")

@@ -101,6 +101,32 @@ def test_seeded_cli_is_not_automatic_recovery_and_keeps_gaps(tmp_path):
     assert result["tracks"][0]["fit"]["status"] == "insufficient_evidence"
 
 
+@pytest.mark.parametrize(
+    ("header", "row", "message"),
+    [
+        ("event_id,time_s,frequency_hz", "manual,,170", "requires event_id,time_s,frequency_hz values"),
+        ("event_id,time_s,frequency_hz", "manual,10,", "requires event_id,time_s,frequency_hz values"),
+        ("event_id,time_s,frequency_hz", "manual,not-a-time,170", "must be numeric"),
+        ("event_id,time_s,frequency_hz", "manual,10,nan", "must be finite"),
+        ("event_id,time_s", "manual,10", "requires event_id,time_s,frequency_hz"),
+    ],
+)
+def test_seeded_cli_rejects_malformed_points_with_actionable_error(tmp_path, capsys, header, row, message):
+    audio = physical_audio(tmp_path / "input.wav")
+    csv_path = tmp_path / "points.csv"
+    csv_path.write_text(f"{header}\n{row}\n")
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "--input", str(audio), "--output", str(tmp_path / "out"),
+                "--n-fft", "1366", "--hop", "334", "--points", str(csv_path),
+                "--points-step-s", "1", "--profile-points", "5",
+            ]
+        )
+    assert error.value.code == 2
+    assert message in capsys.readouterr().err
+
+
 def test_zero_candidate_cli_has_valid_empty_exports(tmp_path):
     audio = tmp_path / "silent.wav"
     sf.write(audio, np.zeros(4000 * 12), 4000)
