@@ -2,6 +2,7 @@
 
 import csv
 import json
+import textwrap
 from collections import Counter
 from dataclasses import asdict
 from importlib.metadata import version
@@ -73,6 +74,7 @@ def plot_spectrogram(
     freq_edges = np.r_[spec.frequencies - df / 2, spec.frequencies[-1] + df / 2]
     low, high = np.percentile(db, [10, 99.5])
     image = ax.pcolormesh(time_edges, freq_edges, db.T, cmap="magma", vmin=low, vmax=max(high, low + 1))
+    annotation_row = 0
     for candidate in candidates:
         color = "cyan" if candidate.category == STRICT_CURVE else "#ffb454"
         ax.plot(candidate.times, candidate.frequencies, ".", color=color, markersize=2)
@@ -91,15 +93,26 @@ def plot_spectrogram(
             summary = candidate.summary()
             flags = ",".join(summary["ambiguity_flags"])
             ax.text(
-                candidate.times[0],
-                candidate.frequencies[0] + df * 2,
-                f"{candidate.event_id} {label}; observed={summary['observed_support_s']:.1f}s; "
+                0.01,
+                0.99 - annotation_row * 0.10,
+                textwrap.fill(
+                    f"{candidate.event_id} {label}; observed={summary['observed_support_s']:.1f}s; "
                 f"gaps={len(summary['unobserved_intervals'])}; gain={candidate.curve_gain:.3f}; "
                 f"improvement={summary['curve_improvement_hz']:.2f}Hz; "
-                f"unverified links={summary['unverified_source_continuity_link_count']}; {flags}",
+                    f"unverified links={summary['unverified_source_continuity_link_count']}; {flags}",
+                    width=100,
+                    break_long_words=True,
+                    break_on_hyphens=False,
+                ),
                 color=color,
-                fontsize=8,
+                fontsize=7,
+                ha="left",
+                va="top",
+                wrap=True,
+                transform=ax.transAxes,
+                bbox={"facecolor": "black", "alpha": 0.65, "edgecolor": "none", "pad": 2},
             )
+            annotation_row += 1
         if start is not None and candidate.category == STRICT_CURVE:
             ax.plot(
                 candidate.times, candidate.fitted, "--", color="lime", linewidth=1, label="empirical shape"
