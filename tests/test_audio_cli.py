@@ -14,6 +14,7 @@ from PIL import Image
 
 from doppler_locator.audio import spectrogram
 from doppler_locator.cli import main, seconds
+from doppler_locator.detector import STRICT_CURVE, Candidate
 from doppler_locator.output import plot_spectrogram
 
 
@@ -190,6 +191,33 @@ def test_plot_wraps_long_uncertainty_title_inside_canvas(make_audio, tmp_path, m
     assert len(extents) == 1
     assert extents[0].x0 >= 0
     assert extents[0].x1 <= 13 * 100  # figure is 13 inches wide at 100 dpi
+
+
+def test_plot_contains_long_candidate_annotation(make_audio, tmp_path, monkeypatch):
+    import matplotlib.figure
+
+    spec = spectrogram(make_audio("constant", duration=3), n_fft=800, fmin=300, fmax=600)
+    bounds = []
+    candidate = Candidate(
+        times=np.array([0.5, 1.0, 1.5]), frequencies=np.array([500.0, 420.0, 330.0]),
+        contrasts=np.ones(3), fitted=np.array([500.0, 420.0, 330.0]), score=0.5, coverage=1,
+        drop_hz=170, monotonicity=1, fit_error=0.1, curve_gain=0.8, movement_fraction=1,
+        linear_rmse_hz=20, curve_rmse_hz=2, time_step_s=0.5, category=STRICT_CURVE,
+        connection_unverified=np.ones(3, dtype=bool), event_id="E0001",
+    )
+
+    def capture(figure, *_args, **_kwargs):
+        figure.canvas.draw()
+        axis = figure.axes[0]
+        bounds.extend((text.get_window_extent(figure.canvas.get_renderer()), axis.get_window_extent())
+                      for text in axis.texts if text is not axis.title)
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", capture)
+    plot_spectrogram(spec, [candidate], tmp_path / "plot.png")
+    assert bounds
+    for text_bounds, axis_bounds in bounds:
+        assert text_bounds.x0 >= axis_bounds.x0
+        assert text_bounds.x1 <= axis_bounds.x1
 
 
 def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
