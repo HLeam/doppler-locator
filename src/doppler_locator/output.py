@@ -127,7 +127,12 @@ def plot_spectrogram(
         ylim=(freq_edges[0], freq_edges[-1]),
         xlabel="Time from recording start (minutes:seconds)",
         ylabel="Frequency (Hz)",
-        title=f"{title}\nHann FFT={spec.n_fft}; Δf={df:.2f} Hz; averaged Δt={spec.time_step:.3f} s{association_note}",
+        title=textwrap.fill(
+            f"{title}\nHann FFT={spec.n_fft}; Δf={df:.2f} Hz; averaged Δt={spec.time_step:.3f} s{association_note}",
+            width=95,
+            break_long_words=True,
+            break_on_hyphens=False,
+        ),
     )
     ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{int(value) // 60}:{int(value) % 60:02d}"))
     fig.colorbar(image, ax=ax, label="Relative digital power (dB; not calibrated SPL)")
@@ -233,13 +238,7 @@ def write_outputs(
             candidate.times[0] - 10,
             candidate.times[-1] + 10,
             title=(
-                f"{candidate.event_id}: {candidate.category}; observed {candidate.summary()['observed_support_s']:.1f}s; "
-                f"max gap {candidate.summary()['maximum_observation_gap_s']:.2f}s; "
-                f"curve gain {candidate.curve_gain:.3f}, improvement "
-                f"{candidate.summary()['curve_improvement_hz']:.2f}Hz, "
-                f"normalized error {candidate.fit_error:.3f}; "
-                f"dotted tracker links have unverified source continuity; "
-                f"ambiguity={','.join(candidate.summary()['ambiguity_flags'])}"
+                f"{candidate.event_id}: {candidate.category}"
             ),
         )
     if review_spec is not None:

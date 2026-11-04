@@ -14,6 +14,7 @@ from PIL import Image
 
 from doppler_locator.audio import spectrogram
 from doppler_locator.cli import main, seconds
+from doppler_locator.output import plot_spectrogram
 
 
 def test_exact_8024_native_rate_and_absolute_time(make_audio):
@@ -163,6 +164,32 @@ def test_zero_candidate_outputs_and_selected_interval(make_audio, tmp_path):
     assert metadata["analysis"]["end_s"] == 9
     assert metadata["candidate_count"] == 0
     assert (output / "overview.png").is_file()
+
+
+def test_plot_wraps_long_uncertainty_title_inside_canvas(make_audio, tmp_path, monkeypatch):
+    import matplotlib.figure
+
+    spec = spectrogram(make_audio("constant", duration=3), n_fft=800, fmin=300, fmax=600)
+    extents = []
+
+    def capture_bounds(figure, *_args, **_kwargs):
+        figure.canvas.draw()
+        title = figure.axes[0].title
+        extents.append(title.get_window_extent(figure.canvas.get_renderer()))
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", capture_bounds)
+    plot_spectrogram(
+        spec,
+        [],
+        tmp_path / "plot.png",
+        title=("E0001: strict curved event; observed 28.6s; max gap 3.4s; "
+               "dotted tracker links have unverified source continuity; "
+               "ambiguity=source_identity_unconfirmed,tracker_links_source_continuity_unverified," * 2),
+    )
+
+    assert len(extents) == 1
+    assert extents[0].x0 >= 0
+    assert extents[0].x1 <= 13 * 100  # figure is 13 inches wide at 100 dpi
 
 
 def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
