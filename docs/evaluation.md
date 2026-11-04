@@ -30,7 +30,7 @@ Use the WAV identified in [source.md](source.md). The script runs the standard C
 
 These are historical results from before the ridge correction below. There are no independently verified labels from which to estimate precision or a false-positive rate.
 
-The initial whole-hour second-example miss combined crop-dependent frame/bin phase, ridge fragmentation, and insufficient strict-curvature evidence. Frames and power averages now align to recording time zero, and peak association uses a minimum-cost one-to-one assignment. Concurrent ridges are not joined as if they were a sequential continuation. Instead, an observed near-linear descending fragment can be reported in its separate unconfirmed discovery category. Strict curved-event criteria remain distinct.
+The initial whole-hour second-example miss combined crop-dependent frame/bin phase, ridge fragmentation, and insufficient strict-curvature evidence. Frames and power averages now align to recording time zero, and peak association uses a minimum-cost one-to-one assignment. Once a ridge expires, it stays a separate observed segment: compatible gap, frequency and slope do not establish source continuity. An observed near-linear descending fragment can be reported in its separate unconfirmed discovery category; strict curved-event criteria remain distinct. Neither category adds a connection between separate ridge records.
 
 ## Current detector: context comparison
 
@@ -66,7 +66,7 @@ The focused synthetic and CLI checks cover these signal cases:
 
 - Three seeded descending tanh curves (505→335 Hz approximately) in Gaussian noise plus a stationary non-harmonic interferer: each detected once, median ridge error <4 Hz.
 - One descending radial-velocity-shaped `t/sqrt(t²+scale²)` curve, which is **not** the fitting template: detected once with median ridge error <4 Hz.
-- Negative/control clip cases: ascending curve, a linear drift reported only as discovery, constant tone, abrupt frequency step, silence, several noise seeds, crossing linear tones, and two independent descending tones. The independent-tone cases produce no strict curved event.
+- Negative/control clip cases: ascending curve, a linear drift reported only as discovery, constant tone, abrupt frequency step, silence, several noise seeds, crossing linear tones, and two independent descending tones. Additional end-to-end detector and CLI controls include a genuine interrupted descending tone and a sequential source handoff with compatible frequency slope; both remain separate observed segments. A detector-boundary control also keeps adjacent ridge records separate when their endpoint frequencies and slopes match. The independent-tone cases produce no strict curved event.
 - Additional stereo antiphase, sparse-ridge rejection, low-excursion rejection, FFT=8024/native-rate timing, chunk-boundary invariance, argument validation, NaN audio rejection, missing input, CSV/JSON/PNG output, and overwrite-refusal checks.
 
 A regression during implementation caught a score bug: flooring the line residual at half an FFT bin falsely made a synthetic linear drift look curved. Gain compares to the actual line residual (with only a numerical zero guard), and strict classification now also requires an absolute curve-fit RMSE improvement of half an FFT bin. Synthetic signals remain much simpler and stronger than real recording conditions. Passing these tests does not validate real-world discrimination.

@@ -11,6 +11,25 @@ def make_audio(tmp_path):
         t = np.arange(round(duration * fs)) / fs
         midpoint = duration / 2
         rng = np.random.default_rng(seed)
+        if kind in {"genuine_gap", "sequential_handoff"}:
+            first_frequency = 520 - 4 * t
+            first_active = t < 20
+            second_active = (t >= 28) & (t < 48)
+            active = first_active | second_active
+            if kind == "genuine_gap":
+                tone = 0.15 * np.sin(2 * np.pi * np.cumsum(first_frequency) / fs)
+                samples = tone * active
+            else:
+                second_frequency = 425 - 4 * (t - 25)
+                first = np.sin(2 * np.pi * np.cumsum(first_frequency) / fs)
+                second = np.sin(2 * np.pi * np.cumsum(second_frequency) / fs)
+                samples = 0.15 * (first * first_active + second * second_active)
+            samples += noise * rng.normal(size=len(t)) * active
+            if stereo:
+                samples = np.column_stack((samples, -samples))
+            path = tmp_path / f"{kind}-{seed}-{fs}-{duration}-{stereo}.wav"
+            sf.write(path, samples, fs, subtype="FLOAT")
+            return path
         if kind == "crossing_linear":
             frequencies = (350 + 160 * t / duration, 510 - 160 * t / duration)
         elif kind == "dual_descending":

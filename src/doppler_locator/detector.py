@@ -269,42 +269,11 @@ def score_ridge(
     return Candidate(*common[:3], linear, score, *common[3:], DESCENDING_DISCOVERY)
 
 
-def _join_continuing_ridges(
-    ridges: list[Ridge], times: np.ndarray, frequency_step: float, config: DetectorConfig
-) -> list[Ridge]:
-    joined = list(ridges)
-    for first in ridges:
-        first_times = times[first.frames]
-        for continuation in ridges:
-            if continuation is first:
-                continue
-            continuation_times = times[continuation.frames]
-            if continuation_times[0] <= first_times[-1] or len(continuation_times) < 6:
-                continue
-            dt = continuation_times[0] - first_times[-1]
-            distance = abs(continuation.frequencies[0] - first.frequencies[-1])
-            if dt > config.max_gap_s + times[1] - times[0] or distance > config.max_rate_hz_s * dt + 2.25 * frequency_step:
-                continue
-            tail = np.asarray(continuation.frequencies)
-            tail_edge = max(3, len(tail) // 10)
-            if np.median(tail[:tail_edge]) - np.median(tail[-tail_edge:]) <= 0:
-                continue
-            joined.append(
-                Ridge(
-                    first.frames + continuation.frames,
-                    first.frequencies + continuation.frequencies,
-                    first.contrasts + continuation.contrasts,
-                )
-            )
-    return joined
-
-
 def detect(spec: Spectrogram, config: DetectorConfig | None = None) -> list[Candidate]:
     config = config or DetectorConfig()
     config.validate()
     ridges = extract_ridges(spec, config)
     df = float(spec.frequencies[1] - spec.frequencies[0])
-    ridges = _join_continuing_ridges(ridges, spec.times, df, config)
     candidates = []
     # Search within long ridges too: stationary tails must not hide a sweep.
     durations = sorted(

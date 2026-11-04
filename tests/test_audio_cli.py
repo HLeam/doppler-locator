@@ -189,6 +189,27 @@ def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
     assert metadata["category_counts"] == {"unconfirmed_descending_tone": len(events)}
 
 
+@pytest.mark.parametrize("kind", ["genuine_gap", "sequential_handoff"])
+def test_cli_outputs_separate_observed_segments(make_audio, tmp_path, kind):
+    path = make_audio(kind, noise=0.01)
+    output = tmp_path / kind
+    assert main(
+        ["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "0"]
+    ) == 0
+    with (output / "candidates.csv").open() as stream:
+        events = list(csv.DictReader(stream))
+    with (output / "ridges.csv").open() as stream:
+        points = list(csv.DictReader(stream))
+    by_event = {}
+    for point in points:
+        by_event.setdefault(point["event_id"], []).append(float(point["time_s"]))
+    assert events
+    assert all(event["category"] == "unconfirmed_descending_tone" for event in events)
+    assert any(max(times) < 24 for times in by_event.values())
+    assert any(min(times) > 24 for times in by_event.values())
+    assert all(not (min(times) < 24 and max(times) > 24) for times in by_event.values())
+
+
 @pytest.mark.parametrize("value,expected", [("20:30", 1230), ("01:00:00", 3600), ("3.5", 3.5)])
 def test_time_parser(value, expected):
     assert seconds(value) == expected
