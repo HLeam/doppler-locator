@@ -122,7 +122,9 @@ def test_cli_output_contract_and_refuses_overwrite(make_audio, tmp_path):
     for name in ("overview.png", "E0001.png", "visual-review-fft-1024.png"):
         with Image.open(output / name) as image:
             image.verify()
-    summarize = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "evaluate_reference.py"))["summarize"]
+    summarize = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "evaluate_reference.py"))[
+        "summarize"
+    ]
     report = summarize(output, [("synthetic", 0, 70)])
     assert report["category_counts"] == {"strict_curved_event": 1}
     detail = report["development_overlap_matches_not_truth_labels"]["synthetic"][0]
@@ -183,9 +185,11 @@ def test_plot_wraps_long_uncertainty_title_inside_canvas(make_audio, tmp_path, m
         spec,
         [],
         tmp_path / "plot.png",
-        title=("E0001: strict curved event; observed 28.6s; max gap 3.4s; "
-               "dotted tracker links have unverified source continuity; "
-               "ambiguity=source_identity_unconfirmed,tracker_links_source_continuity_unverified," * 2),
+        title=(
+            "E0001: strict curved event; observed 28.6s; max gap 3.4s; "
+            "dotted tracker links have unverified source continuity; "
+            "ambiguity=source_identity_unconfirmed,tracker_links_source_continuity_unverified," * 2
+        ),
     )
 
     assert len(extents) == 1
@@ -199,18 +203,33 @@ def test_plot_contains_long_candidate_annotation(make_audio, tmp_path, monkeypat
     spec = spectrogram(make_audio("constant", duration=3), n_fft=800, fmin=300, fmax=600)
     bounds = []
     candidate = Candidate(
-        times=np.array([0.5, 1.0, 1.5]), frequencies=np.array([500.0, 420.0, 330.0]),
-        contrasts=np.ones(3), fitted=np.array([500.0, 420.0, 330.0]), score=0.5, coverage=1,
-        drop_hz=170, monotonicity=1, fit_error=0.1, curve_gain=0.8, movement_fraction=1,
-        linear_rmse_hz=20, curve_rmse_hz=2, time_step_s=0.5, category=STRICT_CURVE,
-        connection_unverified=np.ones(3, dtype=bool), event_id="E0001",
+        times=np.array([0.5, 1.0, 1.5]),
+        frequencies=np.array([500.0, 420.0, 330.0]),
+        contrasts=np.ones(3),
+        fitted=np.array([500.0, 420.0, 330.0]),
+        score=0.5,
+        coverage=1,
+        drop_hz=170,
+        monotonicity=1,
+        fit_error=0.1,
+        curve_gain=0.8,
+        movement_fraction=1,
+        linear_rmse_hz=20,
+        curve_rmse_hz=2,
+        time_step_s=0.5,
+        category=STRICT_CURVE,
+        connection_unverified=np.ones(3, dtype=bool),
+        event_id="E0001",
     )
 
     def capture(figure, *_args, **_kwargs):
         figure.canvas.draw()
         axis = figure.axes[0]
-        bounds.extend((text.get_window_extent(figure.canvas.get_renderer()), axis.get_window_extent())
-                      for text in axis.texts if text is not axis.title)
+        bounds.extend(
+            (text.get_window_extent(figure.canvas.get_renderer()), axis.get_window_extent())
+            for text in axis.texts
+            if text is not axis.title
+        )
 
     monkeypatch.setattr(matplotlib.figure.Figure, "savefig", capture)
     plot_spectrogram(spec, [candidate], tmp_path / "plot.png")
@@ -223,18 +242,21 @@ def test_plot_contains_long_candidate_annotation(make_audio, tmp_path, monkeypat
 def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
     path = make_audio("linear", duration=70, noise=0.03)
     output = tmp_path / "discovery"
-    assert main(
-        [
-            "--input",
-            str(path),
-            "--output",
-            str(output),
-            "--n-fft",
-            "800",
-            "--max-plots",
-            "1",
-        ]
-    ) == 0
+    assert (
+        main(
+            [
+                "--input",
+                str(path),
+                "--output",
+                str(output),
+                "--n-fft",
+                "800",
+                "--max-plots",
+                "1",
+            ]
+        )
+        == 0
+    )
     with (output / "candidates.csv").open() as stream:
         events = list(csv.DictReader(stream))
     assert events
@@ -248,9 +270,7 @@ def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
 def test_cli_outputs_separate_observed_segments(make_audio, tmp_path, kind):
     path = make_audio(kind, noise=0.01)
     output = tmp_path / kind
-    assert main(
-        ["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "0"]
-    ) == 0
+    assert main(["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "0"]) == 0
     with (output / "candidates.csv").open() as stream:
         events = list(csv.DictReader(stream))
     with (output / "ridges.csv").open() as stream:
@@ -269,9 +289,7 @@ def test_cli_outputs_separate_observed_segments(make_audio, tmp_path, kind):
 def test_cli_exports_unverified_tracker_link_provenance(make_audio, tmp_path, kind):
     path = make_audio(kind, noise=0.03)
     output = tmp_path / kind
-    assert main(
-        ["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "1"]
-    ) == 0
+    assert main(["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "1"]) == 0
     with (output / "candidates.csv").open() as stream:
         events = list(csv.DictReader(stream))
     with (output / "ridges.csv").open() as stream:
@@ -279,11 +297,7 @@ def test_cli_exports_unverified_tracker_link_provenance(make_audio, tmp_path, ki
     points_by_event = {}
     for point in points:
         points_by_event.setdefault(point["event_id"], []).append(point)
-    crossing = [
-        event
-        for event in events
-        if float(event["start_s"]) < 35 < float(event["end_s"])
-    ]
+    crossing = [event for event in events if float(event["start_s"]) < 35 < float(event["end_s"])]
     assert crossing
     for event in crossing:
         linked_points = points_by_event[event["event_id"]]

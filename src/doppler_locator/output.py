@@ -89,7 +89,9 @@ def plot_spectrogram(
                     linewidth=0.55,
                 )
         if len(candidates) <= 20:
-            label = "strict curved event" if candidate.category == STRICT_CURVE else "unconfirmed descending tone"
+            label = (
+                "strict curved event" if candidate.category == STRICT_CURVE else "unconfirmed descending tone"
+            )
             summary = candidate.summary()
             flags = ",".join(summary["ambiguity_flags"])
             ax.text(
@@ -97,8 +99,8 @@ def plot_spectrogram(
                 0.99 - annotation_row * 0.10,
                 textwrap.fill(
                     f"{candidate.event_id} {label}; observed={summary['observed_support_s']:.1f}s; "
-                f"gaps={len(summary['unobserved_intervals'])}; gain={candidate.curve_gain:.3f}; "
-                f"improvement={summary['curve_improvement_hz']:.2f}Hz; "
+                    f"gaps={len(summary['unobserved_intervals'])}; gain={candidate.curve_gain:.3f}; "
+                    f"improvement={summary['curve_improvement_hz']:.2f}Hz; "
                     f"unverified links={summary['unverified_source_continuity_link_count']}; {flags}",
                     width=100,
                     break_long_words=True,
@@ -121,7 +123,9 @@ def plot_spectrogram(
         candidate.connection_unverified is not None and np.any(candidate.connection_unverified)
         for candidate in candidates
     )
-    association_note = "; dotted links are tracker associations with unverified source continuity" if has_links else ""
+    association_note = (
+        "; dotted links are tracker associations with unverified source continuity" if has_links else ""
+    )
     ax.set(
         xlim=(time_edges[0], time_edges[-1]),
         ylim=(freq_edges[0], freq_edges[-1]),
@@ -178,7 +182,9 @@ def write_outputs(
         for candidate in candidates:
             link_flags = candidate.connection_unverified
             for index, (time, frequency, contrast, fit) in enumerate(
-                zip(candidate.times, candidate.frequencies, candidate.contrasts, candidate.fitted, strict=True)
+                zip(
+                    candidate.times, candidate.frequencies, candidate.contrasts, candidate.fitted, strict=True
+                )
             ):
                 linked = bool(link_flags[index]) if link_flags is not None else False
                 dt = float(time - candidate.times[index - 1]) if index else 0.0
@@ -237,9 +243,7 @@ def write_outputs(
             directory / f"{candidate.event_id}.png",
             candidate.times[0] - 10,
             candidate.times[-1] + 10,
-            title=(
-                f"{candidate.event_id}: {candidate.category}"
-            ),
+            title=(f"{candidate.event_id}: {candidate.category}"),
         )
     if review_spec is not None:
         plot_spectrogram(

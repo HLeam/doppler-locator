@@ -7,7 +7,6 @@ import pytest
 from doppler_locator.audio import spectrogram
 from doppler_locator.detector import DESCENDING_DISCOVERY, STRICT_CURVE, detect
 
-
 REFERENCE = os.environ.get("DOPPLER_REFERENCE_WAV")
 pytestmark = pytest.mark.skipif(not REFERENCE, reason="set DOPPLER_REFERENCE_WAV for local reference checks")
 
@@ -55,7 +54,10 @@ def test_reference_categories_and_frequency_paths(target, category, contexts, fr
             edge = max(3, len(candidate.times) // 10)
             start_hz = float(np.median(candidate.frequencies[:edge]))
             end_hz = float(np.median(candidate.frequencies[-edge:]))
-            if frequency_ranges[0] <= start_hz <= frequency_ranges[1] and frequency_ranges[2] <= end_hz <= frequency_ranges[3]:
+            if (
+                frequency_ranges[0] <= start_hz <= frequency_ranges[1]
+                and frequency_ranges[2] <= end_hz <= frequency_ranges[3]
+            ):
                 eligible.append((candidate, overlap, start_hz, end_hz))
         assert eligible, (category, start, counts[-1], [c.summary() for c in candidates])
         candidate, overlap, start_hz, end_hz = max(eligible, key=lambda item: item[1])

@@ -53,16 +53,18 @@ def make_audio(tmp_path):
         elif kind == "dual_descending":
             frequencies = (510 - 110 * t / duration, 490 - 80 * t / duration)
         else:
-            frequencies = ({
-                "curve": 420 - 85 * np.tanh((t - midpoint) / 8),
-                "radial_curve": 420 - 85 * (t - midpoint) / np.sqrt((t - midpoint) ** 2 + 8**2),
-                "rising": 420 + 85 * np.tanh((t - midpoint) / 8),
-                "linear": 505 - 170 * t / duration,
-                "constant": np.full_like(t, 420),
-                "step": np.where(t < midpoint, 505, 335),
-                "noise": np.zeros_like(t),
-                "silence": np.zeros_like(t),
-            }[kind],)
+            frequencies = (
+                {
+                    "curve": 420 - 85 * np.tanh((t - midpoint) / 8),
+                    "radial_curve": 420 - 85 * (t - midpoint) / np.sqrt((t - midpoint) ** 2 + 8**2),
+                    "rising": 420 + 85 * np.tanh((t - midpoint) / 8),
+                    "linear": 505 - 170 * t / duration,
+                    "constant": np.full_like(t, 420),
+                    "step": np.where(t < midpoint, 505, 335),
+                    "noise": np.zeros_like(t),
+                    "silence": np.zeros_like(t),
+                }[kind],
+            )
         samples = sum(
             0.15 * np.sin(2 * np.pi * np.cumsum(frequency) / fs) for frequency in frequencies
         ) + noise * rng.normal(size=len(t))
