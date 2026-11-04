@@ -118,9 +118,20 @@ def test_seeded_cli_rejects_malformed_points_with_actionable_error(tmp_path, cap
     with pytest.raises(SystemExit) as error:
         main(
             [
-                "--input", str(audio), "--output", str(tmp_path / "out"),
-                "--n-fft", "1366", "--hop", "334", "--points", str(csv_path),
-                "--points-step-s", "1", "--profile-points", "5",
+                "--input",
+                str(audio),
+                "--output",
+                str(tmp_path / "out"),
+                "--n-fft",
+                "1366",
+                "--hop",
+                "334",
+                "--points",
+                str(csv_path),
+                "--points-step-s",
+                "1",
+                "--profile-points",
+                "5",
             ]
         )
     assert error.value.code == 2

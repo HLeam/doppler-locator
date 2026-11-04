@@ -2,7 +2,7 @@
 
 ## Plan and scope
 
-The implementation sequence was: inspect local native-rate spectrograms; implement a chunked STFT and peak-linking baseline; test synthetic positives/controls; inspect the two supplied development clips and a separate interval; scan the hour; preserve and document shortcomings rather than chase perfect detections. No ML, external service, localization, or physical parameter fitting was used. The detailed initial plan and real-data evidence remain private/local.
+The original detector implementation sequence was: inspect local native-rate spectrograms; implement a chunked STFT and peak-linking baseline; test synthetic positives/controls; inspect the two supplied development clips and a separate interval; scan the hour; preserve and document shortcomings rather than chase perfect detections. That baseline used no ML, external service, localization, or physical parameter fitting. The later experimental physical-fitting workflow is documented separately in [physical-fitting.md](physical-fitting.md). The detailed initial plan and real-data evidence remain private/local.
 
 The manual intervals (1230–1290 s and 2100–2175 s, approximately 500→330 Hz) influenced the default frequency band, event scale and contrast threshold. Initial local-contrast thresholds of 3 dB fragmented both target ridges; a small sweep through 2, 1.5 and 1 dB led to 1.5 dB. Suppression overlap was set to 40% to avoid duplicate partial windows. These are development choices, **not independently validated parameters**. The later category addition exposes a partial near-linear segment as a discovery; it does not assert identity or fill unseen portions.
 
