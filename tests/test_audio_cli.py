@@ -2,8 +2,10 @@ import argparse
 import csv
 import hashlib
 import json
+import runpy
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -85,6 +87,8 @@ def test_cli_output_contract_and_refuses_overwrite(make_audio, tmp_path):
         str(output),
         "--n-fft",
         "800",
+        "--review-fft",
+        "1024",
         "--max-plots",
         "1",
     ]
@@ -93,21 +97,36 @@ def test_cli_output_contract_and_refuses_overwrite(make_audio, tmp_path):
     with (output / "candidates.csv").open() as stream:
         events = list(csv.DictReader(stream))
     assert len(events) == 1
+    assert events[0]["category"] == "strict_curved_event"
     assert 0 <= float(events[0]["heuristic_score"]) <= 1
+    assert float(events[0]["observed_support_s"]) > 0
+    assert events[0]["unobserved_intervals"] == "[]"
+    assert "source_identity_unconfirmed" in events[0]["ambiguity_flags"]
     assert float(events[0]["start_s"]) < 35 < float(events[0]["end_s"])
     with (output / "ridges.csv").open() as stream:
         points = list(csv.DictReader(stream))
     assert len(points) == int(events[0]["ridge_points"])
+    assert set(point["category"] for point in points) == {"strict_curved_event"}
     assert set(point["event_id"] for point in points) == {"E0001"}
     metadata = json.loads((output / "run.json").read_text())
     assert metadata["candidate_count"] == 1
+    assert metadata["category_counts"] == {"strict_curved_event": 1}
     assert metadata["input_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
     assert metadata["spectrogram"]["n_fft"] == 800
+    assert metadata["visual_review_spectrogram"]["n_fft"] == 1024
+    assert metadata["category_counts"] == {"strict_curved_event": 1}
     assert str(tmp_path) not in (output / "run.json").read_text()
     assert metadata["plotted_event_ids"] == ["E0001"]
-    for name in ("overview.png", "E0001.png"):
+    for name in ("overview.png", "E0001.png", "visual-review-fft-1024.png"):
         with Image.open(output / name) as image:
             image.verify()
+    summarize = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "evaluate_reference.py"))["summarize"]
+    report = summarize(output, [("synthetic", 0, 70)])
+    assert report["category_counts"] == {"strict_curved_event": 1}
+    detail = report["development_overlap_matches_not_truth_labels"]["synthetic"][0]
+    assert detail["curve_rmse_hz"] > 0
+    assert detail["unobserved_intervals"] == []
+    assert len(detail["observed_frequency_path"]) == int(events[0]["observed_point_count"])
     before = (output / "candidates.csv").read_bytes()
     again = subprocess.run(command, capture_output=True, text=True)
     assert again.returncode == 2
@@ -144,6 +163,30 @@ def test_zero_candidate_outputs_and_selected_interval(make_audio, tmp_path):
     assert metadata["analysis"]["end_s"] == 9
     assert metadata["candidate_count"] == 0
     assert (output / "overview.png").is_file()
+
+
+def test_cli_exports_descending_tone_discovery_category(make_audio, tmp_path):
+    path = make_audio("linear", duration=70, noise=0.03)
+    output = tmp_path / "discovery"
+    assert main(
+        [
+            "--input",
+            str(path),
+            "--output",
+            str(output),
+            "--n-fft",
+            "800",
+            "--max-plots",
+            "1",
+        ]
+    ) == 0
+    with (output / "candidates.csv").open() as stream:
+        events = list(csv.DictReader(stream))
+    assert events
+    assert {event["category"] for event in events} == {"unconfirmed_descending_tone"}
+    assert all("strict_curvature_gate_not_met" in event["ambiguity_flags"] for event in events)
+    metadata = json.loads((output / "run.json").read_text())
+    assert metadata["category_counts"] == {"unconfirmed_descending_tone": len(events)}
 
 
 @pytest.mark.parametrize("value,expected", [("20:30", 1230), ("01:00:00", 3600), ("3.5", 3.5)])

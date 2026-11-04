@@ -3,13 +3,14 @@
 import argparse
 import hashlib
 import time
+from collections import Counter
 from dataclasses import fields
 from pathlib import Path
 
 import soundfile as sf
 
 from .audio import spectrogram
-from .detector import DetectorConfig, detect
+from .detector import DESCENDING_DISCOVERY, STRICT_CURVE, DetectorConfig, detect
 from .output import write_outputs
 
 
@@ -31,7 +32,7 @@ def seconds(value: str) -> float:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        description="Find candidate descending Doppler-like frequency curves (not aircraft identification)."
+        description="Find strict curved events and separate unconfirmed descending-tone discoveries."
     )
     result.add_argument(
         "--input", required=True, type=Path, help="local audio readable by libsndfile; WAV recommended"
@@ -72,6 +73,11 @@ def parser() -> argparse.ArgumentParser:
         default=20,
         help="event close-ups, highest scores first; overview always written",
     )
+    result.add_argument(
+        "--review-fft",
+        type=int,
+        help="optional visual-only FFT overlay; detections still use --n-fft (32768 is the selected review size)",
+    )
     defaults = DetectorConfig()
     for item in fields(defaults):
         result.add_argument(
@@ -108,6 +114,20 @@ def main(argv: list[str] | None = None) -> int:
             channel=args.channel,
         )
         candidates = detect(spec, config)
+        review_spec = None
+        if args.review_fft is not None:
+            review_spec = spectrogram(
+                args.input,
+                start=args.start,
+                end=args.end,
+                fmin=args.fmin,
+                fmax=args.fmax,
+                n_fft=args.review_fft,
+                hop=spec.hop,
+                time_step=args.time_step,
+                chunk_seconds=args.chunk_seconds,
+                channel=args.channel,
+            )
         with args.input.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         metadata = {
@@ -125,10 +145,14 @@ def main(argv: list[str] | None = None) -> int:
             },
             "analysis_elapsed_seconds": time.monotonic() - started,
         }
-        write_outputs(args.output, spec, candidates, config, metadata, args.max_plots)
+        write_outputs(args.output, spec, candidates, config, metadata, args.max_plots, review_spec)
     except (OSError, ValueError, sf.LibsndfileError) as error:
         arg_parser.error(str(error))
-    print(f"{len(candidates)} candidate(s); heuristic scores, not probabilities. Outputs: {args.output}")
+    counts = Counter(candidate.category for candidate in candidates)
+    print(
+        f"{len(candidates)} candidate(s): {counts[STRICT_CURVE]} strict curved, "
+        f"{counts[DESCENDING_DISCOVERY]} unconfirmed descending tones. Outputs: {args.output}"
+    )
     return 0
 
 

@@ -7,6 +7,7 @@ The detector itself never receives these approximate label intervals.
 import argparse
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
 from doppler_locator.cli import main as detect_main
@@ -17,19 +18,52 @@ LABELS = [("development-1", 1230.0, 1290.0), ("development-2", 2100.0, 2175.0)]
 def summarize(directory: Path, labels: list[tuple[str, float, float]]) -> dict:
     with (directory / "candidates.csv").open() as stream:
         events = list(csv.DictReader(stream))
+    points_by_event: dict[str, list[dict]] = {}
+    with (directory / "ridges.csv").open() as stream:
+        for point in csv.DictReader(stream):
+            points_by_event.setdefault(point["event_id"], []).append(
+                {
+                    "time_s": float(point["time_s"]),
+                    "frequency_hz": float(point["frequency_hz"]),
+                }
+            )
+
+    def details(event: dict, overlap_s: float | None = None) -> dict:
+        result = {
+            "event_id": event["event_id"],
+            "category": event["category"],
+            "start_s": float(event["start_s"]),
+            "end_s": float(event["end_s"]),
+            "start_hz": float(event["start_hz"]),
+            "end_hz": float(event["end_hz"]),
+            "observed_support_s": float(event["observed_support_s"]),
+            "coverage": float(event["coverage"]),
+            "unobserved_intervals": json.loads(event["unobserved_intervals"]),
+            "ambiguity_flags": json.loads(event["ambiguity_flags"]),
+            "linear_rmse_hz": float(event["linear_rmse_hz"]),
+            "curve_rmse_hz": float(event["curve_rmse_hz"]),
+            "curve_gain_over_linear": float(event["curve_gain_over_linear"]),
+            "curve_improvement_hz": float(event["curve_improvement_hz"]),
+            "observed_frequency_path": points_by_event.get(event["event_id"], []),
+        }
+        if overlap_s is not None:
+            result["label_overlap_s"] = overlap_s
+        return result
+
     matches = {}
     for name, start, end in labels:
-        matches[name] = [
-            event["event_id"]
-            for event in events
-            if min(float(event["end_s"]), end) - max(float(event["start_s"]), start) >= 10
-        ]
-    matched = {event_id for ids in matches.values() for event_id in ids}
+        matches[name] = []
+        for event in events:
+            overlap = min(float(event["end_s"]), end) - max(float(event["start_s"]), start)
+            if overlap >= 10:
+                matches[name].append(details(event, overlap))
+    matched = {item["event_id"] for items in matches.values() for item in items}
     return {
         "candidate_count": len(events),
-        "development_temporal_matches": matches,
+        "category_counts": dict(Counter(event["category"] for event in events)),
+        "development_overlap_matches_not_truth_labels": matches,
         "unmatched_candidates_not_known_false_positives": [
-            event["event_id"] for event in events if event["event_id"] not in matched
+            details(event) for event in events if event["event_id"] not in matched
         ],
     }
 

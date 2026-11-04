@@ -3,6 +3,8 @@ import pytest
 
 from doppler_locator.audio import spectrogram
 from doppler_locator.detector import (
+    DESCENDING_DISCOVERY,
+    STRICT_CURVE,
     DetectorConfig,
     Ridge,
     _join_continuing_ridges,
@@ -26,6 +28,7 @@ def test_curved_positive_localizes_ridge(make_audio, seed):
     assert event.drop_hz > 100
     assert 0.65 <= event.score <= 1
     assert event.curve_gain > 0.12
+    assert event.category == STRICT_CURVE
     assert event.event_id == "E0001"
 
 
@@ -39,9 +42,26 @@ def test_non_template_curved_positive(make_audio):
     assert np.median(abs(truth - event.frequencies)) < 4
 
 
-@pytest.mark.parametrize("kind", ["rising", "linear", "constant", "step", "noise", "silence"])
+@pytest.mark.parametrize("kind", ["rising", "constant", "step", "noise", "silence"])
 def test_negative_controls(make_audio, kind):
     assert detect(analyze(make_audio(kind))) == []
+
+
+def test_descending_linear_tone_is_discovery_not_strict_event(make_audio):
+    events = detect(analyze(make_audio("linear", noise=0.03)))
+    assert events
+    assert all(event.category == DESCENDING_DISCOVERY for event in events)
+    assert all(event.curve_gain < DetectorConfig().min_curve_gain for event in events)
+    assert all("strict_curvature_gate_not_met" in event.summary()["ambiguity_flags"] for event in events)
+
+
+@pytest.mark.parametrize("kind", ["crossing_linear", "dual_descending"])
+def test_independent_linear_tones_do_not_form_strict_events(make_audio, kind):
+    events = detect(analyze(make_audio(kind, noise=0.03)))
+    assert all(event.category != STRICT_CURVE for event in events)
+    assert events
+    assert all(event.category == DESCENDING_DISCOVERY for event in events)
+    assert all("source_identity_unconfirmed" in event.summary()["ambiguity_flags"] for event in events)
 
 
 @pytest.mark.parametrize("seed", [1, 23, 47])
@@ -85,6 +105,11 @@ def test_short_coherent_sweep_survives_crop_phase(phase):
     f = 420 - 85 * np.tanh((t - 9.28) / 3.0)
     candidate = score_ridge(t, f, np.full_like(t, 8), 0.5, 5, config)
     assert candidate is not None
+    summary = candidate.summary()
+    assert summary["category"] == STRICT_CURVE
+    assert summary["unobserved_intervals"] == []
+    assert summary["observed_point_count"] == len(t)
+    assert "unobserved_intervals" not in summary["ambiguity_flags"]
     assert candidate.times[-1] - candidate.times[0] >= 15
 
 
@@ -120,6 +145,8 @@ def test_short_low_drop_fragment_joins_later_nonoverlapping_continuation():
         DetectorConfig(),
     )
     assert candidate is not None
+    assert candidate.summary()["unobserved_intervals"][0]["unobserved_s"] == pytest.approx(1.0)
+    assert "unobserved_intervals" in candidate.summary()["ambiguity_flags"]
 
 
 def test_concurrent_descending_ridges_are_not_joined():

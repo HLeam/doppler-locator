@@ -2,6 +2,7 @@
 
 import csv
 import json
+from collections import Counter
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -14,13 +15,19 @@ import numpy as np  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
 
 from .audio import Spectrogram  # noqa: E402
-from .detector import Candidate, DetectorConfig  # noqa: E402
+from .detector import DESCENDING_DISCOVERY, STRICT_CURVE, Candidate, DetectorConfig  # noqa: E402
 
 COLUMNS = [
     "event_id",
+    "category",
     "start_s",
     "end_s",
     "duration_s",
+    "observed_support_s",
+    "observed_point_count",
+    "maximum_observation_gap_s",
+    "unobserved_intervals",
+    "ambiguity_flags",
     "start_hz",
     "end_hz",
     "drop_hz",
@@ -30,6 +37,10 @@ COLUMNS = [
     "monotonicity",
     "normalized_fit_error",
     "curve_gain_over_linear",
+    "curve_improvement_hz",
+    "linear_rmse_hz",
+    "curve_rmse_hz",
+    "descending_movement_fraction",
     "ridge_points",
 ]
 
@@ -62,16 +73,22 @@ def plot_spectrogram(
     low, high = np.percentile(db, [10, 99.5])
     image = ax.pcolormesh(time_edges, freq_edges, db.T, cmap="magma", vmin=low, vmax=max(high, low + 1))
     for candidate in candidates:
-        ax.plot(candidate.times, candidate.frequencies, ".", color="cyan", markersize=2)
+        color = "cyan" if candidate.category == STRICT_CURVE else "#ffb454"
+        ax.plot(candidate.times, candidate.frequencies, ".", color=color, markersize=2)
         if len(candidates) <= 20:
+            label = "strict curved event" if candidate.category == STRICT_CURVE else "unconfirmed descending tone"
+            summary = candidate.summary()
+            flags = ",".join(summary["ambiguity_flags"])
             ax.text(
                 candidate.times[0],
                 candidate.frequencies[0] + df * 2,
-                f"{candidate.event_id} score={candidate.score:.2f}",
-                color="cyan",
+                f"{candidate.event_id} {label}; observed={summary['observed_support_s']:.1f}s; "
+                f"gaps={len(summary['unobserved_intervals'])}; gain={candidate.curve_gain:.3f}; "
+                f"improvement={summary['curve_improvement_hz']:.2f}Hz; {flags}",
+                color=color,
                 fontsize=8,
             )
-        if start is not None:
+        if start is not None and candidate.category == STRICT_CURVE:
             ax.plot(
                 candidate.times, candidate.fitted, "--", color="lime", linewidth=1, label="empirical shape"
             )
@@ -96,18 +113,25 @@ def write_outputs(
     config: DetectorConfig,
     metadata: dict,
     max_plots: int = 20,
+    review_spec: Spectrogram | None = None,
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / "candidates.csv").open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=COLUMNS)
         writer.writeheader()
-        writer.writerows(candidate.summary() for candidate in candidates)
+        for candidate in candidates:
+            row = candidate.summary()
+            row["unobserved_intervals"] = json.dumps(row["unobserved_intervals"], separators=(",", ":"))
+            row["ambiguity_flags"] = json.dumps(row["ambiguity_flags"], separators=(",", ":"))
+            writer.writerow(row)
     with (directory / "ridges.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["event_id", "time_s", "frequency_hz", "local_contrast_db", "empirical_shape_hz"])
+        writer.writerow(
+            ["event_id", "category", "time_s", "frequency_hz", "local_contrast_db", "comparison_fit_hz"]
+        )
         for candidate in candidates:
             writer.writerows(
-                (candidate.event_id, *values)
+                (candidate.event_id, candidate.category, *values)
                 for values in zip(
                     candidate.times, candidate.frequencies, candidate.contrasts, candidate.fitted, strict=True
                 )
@@ -124,7 +148,12 @@ def write_outputs(
                 "frequency_step_hz": float(spec.frequencies[1] - spec.frequencies[0]),
             },
             "candidate_count": len(candidates),
-            "score_warning": "Heuristic ranking score, not a calibrated probability or source identification",
+            "category_counts": dict(Counter(candidate.category for candidate in candidates)),
+            "categories": {
+                STRICT_CURVE: "Strict sigmoid-shaped descending event; not source identification",
+                DESCENDING_DISCOVERY: "Observed descending tone with insufficient strict curvature evidence",
+            },
+            "score_warning": "Category-specific heuristic ranking, not a calibrated probability or source identification",
             "versions": {
                 name: version(name)
                 for name in ("doppler-locator", "numpy", "scipy", "soundfile", "matplotlib")
@@ -133,6 +162,11 @@ def write_outputs(
     )
     selected = sorted(candidates, key=lambda candidate: -candidate.score)[:max_plots]
     metadata["plotted_event_ids"] = [candidate.event_id for candidate in selected]
+    if review_spec is not None:
+        metadata["visual_review_spectrogram"] = {
+            "n_fft": review_spec.n_fft,
+            "purpose": "visual review only; candidate detection used the analysis spectrogram",
+        }
     (directory / "run.json").write_text(json.dumps(metadata, indent=2, allow_nan=False) + "\n")
     plot_spectrogram(spec, candidates, directory / "overview.png")
     for candidate in selected:
@@ -142,5 +176,19 @@ def write_outputs(
             directory / f"{candidate.event_id}.png",
             candidate.times[0] - 10,
             candidate.times[-1] + 10,
-            title=f"{candidate.event_id}: heuristic score {candidate.score:.3f} (not probability)",
+            title=(
+                f"{candidate.event_id}: {candidate.category}; observed {candidate.summary()['observed_support_s']:.1f}s; "
+                f"max gap {candidate.summary()['maximum_observation_gap_s']:.2f}s; "
+                f"curve gain {candidate.curve_gain:.3f}, improvement "
+                f"{candidate.summary()['curve_improvement_hz']:.2f}Hz, "
+                f"normalized error {candidate.fit_error:.3f}; "
+                f"ambiguity={','.join(candidate.summary()['ambiguity_flags'])}"
+            ),
+        )
+    if review_spec is not None:
+        plot_spectrogram(
+            review_spec,
+            candidates,
+            directory / f"visual-review-fft-{review_spec.n_fft}.png",
+            title=f"Visual review only; detections use analysis FFT={spec.n_fft}",
         )

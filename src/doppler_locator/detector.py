@@ -9,6 +9,9 @@ from scipy.signal import find_peaks
 
 from .audio import Spectrogram
 
+STRICT_CURVE = "strict_curved_event"
+DESCENDING_DISCOVERY = "unconfirmed_descending_tone"
+
 
 @dataclass(frozen=True)
 class DetectorConfig:
@@ -62,14 +65,40 @@ class Candidate:
     monotonicity: float
     fit_error: float
     curve_gain: float
+    movement_fraction: float
+    linear_rmse_hz: float
+    curve_rmse_hz: float
+    time_step_s: float
+    category: str
     event_id: str = ""
 
     def summary(self) -> dict:
+        deltas = np.diff(self.times)
+        gaps = [
+            {
+                "after_s": float(self.times[i]),
+                "before_s": float(self.times[i + 1]),
+                "unobserved_s": float(max(0, deltas[i] - self.time_step_s)),
+            }
+            for i in range(len(deltas))
+            if deltas[i] > 1.5 * self.time_step_s
+        ]
+        ambiguity = ["source_identity_unconfirmed"]
+        if self.category == DESCENDING_DISCOVERY:
+            ambiguity.append("strict_curvature_gate_not_met")
+        if gaps:
+            ambiguity.append("unobserved_intervals")
         return {
             "event_id": self.event_id,
+            "category": self.category,
             "start_s": float(self.times[0]),
             "end_s": float(self.times[-1]),
             "duration_s": float(np.ptp(self.times)),
+            "observed_support_s": float(self.time_step_s + np.minimum(deltas, self.time_step_s).sum()),
+            "observed_point_count": len(self.times),
+            "maximum_observation_gap_s": float(deltas.max()) if len(deltas) else 0.0,
+            "unobserved_intervals": gaps,
+            "ambiguity_flags": ambiguity,
             "start_hz": float(np.median(self.frequencies[: max(3, len(self.times) // 10)])),
             "end_hz": float(np.median(self.frequencies[-max(3, len(self.times) // 10) :])),
             "drop_hz": self.drop_hz,
@@ -79,12 +108,16 @@ class Candidate:
             "monotonicity": self.monotonicity,
             "normalized_fit_error": self.fit_error,
             "curve_gain_over_linear": self.curve_gain,
+            "curve_improvement_hz": self.linear_rmse_hz - self.curve_rmse_hz,
+            "linear_rmse_hz": self.linear_rmse_hz,
+            "curve_rmse_hz": self.curve_rmse_hz,
+            "descending_movement_fraction": self.movement_fraction,
             "ridge_points": len(self.times),
         }
 
 
 def extract_ridges(spec: Spectrogram, config: DetectorConfig) -> list[Ridge]:
-    """Link salient peaks greedily, one observation per ridge per time bin.
+    """Link salient peaks by minimum-cost assignment, one per ridge and bin.
 
     A four-observation velocity estimate helps through quantized plateaus. Links
     are limited by rate plus 2.25 frequency bins of quantization tolerance.
@@ -162,10 +195,9 @@ def score_ridge(
     frequency_step: float,
     config: DetectorConfig,
 ) -> Candidate | None:
-    """Test a descending sigmoid family against a line; no speed/range inference.
+    """Return a strict curved event or a separate descending-tone discovery.
 
-    Gates reject short, sparse, low-excursion and poorly shaped tracks. The
-    bounded weighted score ranks survivors; it is NOT a probability.
+    Scores rank survivors and are not probabilities or source identification.
     """
     if len(times) < 6:
         return None
@@ -196,20 +228,45 @@ def score_ridge(
     errors = np.sqrt(np.mean((fits - frequencies) ** 2, axis=1))
     best = int(np.argmin(errors))
     error = float(errors[best] / drop)
-    gain = float(np.clip(1 - errors[best] / max(linear_rmse, 1e-12), 0, 1))
+    raw_gain = float(1 - errors[best] / max(linear_rmse, 1e-12))
+    gain = float(np.clip(raw_gain, 0, 1))
     # Compare samples about two seconds apart, tolerating half a frequency bin.
     lag = min(len(times) - 1, max(1, round(2 / time_step)))
-    monotonicity = float(np.mean(frequencies[lag:] - frequencies[:-lag] <= frequency_step / 2))
-    if error > 0.16 or gain < config.min_curve_gain or monotonicity < 0.75:
-        return None
+    changes = frequencies[lag:] - frequencies[:-lag]
+    monotonicity = float(np.mean(changes <= frequency_step / 2))
+    movement = float(np.mean(changes <= -frequency_step / 2))
     shape = max(0.0, 1 - error / 0.16)
     strength = float(np.clip((np.median(contrasts) - config.peak_db) / 9, 0, 1))
-    score = float(0.25 * coverage + 0.20 * monotonicity + 0.25 * shape + 0.20 * gain + 0.10 * strength)
+    common = (
+        times,
+        frequencies,
+        contrasts,
+        coverage,
+        drop,
+        monotonicity,
+        error,
+        raw_gain,
+        movement,
+        linear_rmse,
+        errors[best],
+        time_step,
+    )
+    curve_improvement = linear_rmse - errors[best]
+    if (
+        error <= 0.16
+        and gain >= config.min_curve_gain
+        and curve_improvement >= frequency_step / 2
+        and monotonicity >= 0.75
+    ):
+        score = float(0.25 * coverage + 0.20 * monotonicity + 0.25 * shape + 0.20 * gain + 0.10 * strength)
+        if score >= config.min_score:
+            return Candidate(*common[:3], fits[best], score, *common[3:], STRICT_CURVE)
+    if movement < 0.10 or monotonicity < 0.75:
+        return None
+    score = float(0.35 * coverage + 0.30 * monotonicity + 0.25 * movement + 0.10 * strength)
     if score < config.min_score:
         return None
-    return Candidate(
-        times, frequencies, contrasts, fits[best], score, coverage, drop, monotonicity, error, gain
-    )
+    return Candidate(*common[:3], linear, score, *common[3:], DESCENDING_DISCOVERY)
 
 
 def _join_continuing_ridges(
@@ -274,6 +331,8 @@ def detect(spec: Spectrogram, config: DetectorConfig | None = None) -> list[Cand
     for candidate in sorted(candidates, key=lambda c: (-c.score, c.times[0])):
         duplicate = False
         for other in kept:
+            if candidate.category != other.category:
+                continue
             lo, hi = max(candidate.times[0], other.times[0]), min(candidate.times[-1], other.times[-1])
             if hi <= lo:
                 continue
