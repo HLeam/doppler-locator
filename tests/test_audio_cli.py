@@ -210,6 +210,36 @@ def test_cli_outputs_separate_observed_segments(make_audio, tmp_path, kind):
     assert all(not (min(times) < 24 and max(times) > 24) for times in by_event.values())
 
 
+@pytest.mark.parametrize("kind", ["continuous_sweep", "seamless_handoff"])
+def test_cli_exports_unverified_tracker_link_provenance(make_audio, tmp_path, kind):
+    path = make_audio(kind, noise=0.03)
+    output = tmp_path / kind
+    assert main(
+        ["--input", str(path), "--output", str(output), "--n-fft", "800", "--max-plots", "1"]
+    ) == 0
+    with (output / "candidates.csv").open() as stream:
+        events = list(csv.DictReader(stream))
+    with (output / "ridges.csv").open() as stream:
+        points = list(csv.DictReader(stream))
+    points_by_event = {}
+    for point in points:
+        points_by_event.setdefault(point["event_id"], []).append(point)
+    crossing = [
+        event
+        for event in events
+        if float(event["start_s"]) < 35 < float(event["end_s"])
+    ]
+    assert crossing
+    for event in crossing:
+        linked_points = points_by_event[event["event_id"]]
+        assert linked_points[0]["association_method"] == "ridge_start"
+        assert linked_points[0]["source_continuity_unverified"] == "False"
+        assert all(point["association_method"] == "minimum_cost_peak_link" for point in linked_points[1:])
+        assert all(point["source_continuity_unverified"] == "True" for point in linked_points[1:])
+        assert int(event["unverified_source_continuity_link_count"]) == len(linked_points) - 1
+        assert "tracker_links_source_continuity_unverified" in event["ambiguity_flags"]
+
+
 @pytest.mark.parametrize("value,expected", [("20:30", 1230), ("01:00:00", 3600), ("3.5", 3.5)])
 def test_time_parser(value, expected):
     assert seconds(value) == expected

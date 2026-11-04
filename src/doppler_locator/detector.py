@@ -51,6 +51,7 @@ class Ridge:
     frames: list[int] = field(default_factory=list)
     frequencies: list[float] = field(default_factory=list)
     contrasts: list[float] = field(default_factory=list)
+    connections_from_previous: list[bool] = field(default_factory=list)
 
 
 @dataclass
@@ -70,6 +71,7 @@ class Candidate:
     curve_rmse_hz: float
     time_step_s: float
     category: str
+    connection_unverified: np.ndarray | None = None
     event_id: str = ""
 
     def summary(self) -> dict:
@@ -84,6 +86,11 @@ class Candidate:
             if deltas[i] > 1.5 * self.time_step_s
         ]
         ambiguity = ["source_identity_unconfirmed"]
+        unverified_connections = (
+            int(np.count_nonzero(self.connection_unverified)) if self.connection_unverified is not None else 0
+        )
+        if unverified_connections:
+            ambiguity.append("tracker_links_source_continuity_unverified")
         if self.category == DESCENDING_DISCOVERY:
             ambiguity.append("strict_curvature_gate_not_met")
         if gaps:
@@ -99,6 +106,7 @@ class Candidate:
             "maximum_observation_gap_s": float(deltas.max()) if len(deltas) else 0.0,
             "unobserved_intervals": gaps,
             "ambiguity_flags": ambiguity,
+            "unverified_source_continuity_link_count": unverified_connections,
             "start_hz": float(np.median(self.frequencies[: max(3, len(self.times) // 10)])),
             "end_hz": float(np.median(self.frequencies[-max(3, len(self.times) // 10) :])),
             "drop_hz": self.drop_hz,
@@ -179,10 +187,11 @@ def extract_ridges(spec: Spectrogram, config: DetectorConfig) -> list[Ridge]:
             active[i].frames.append(frame)
             active[i].frequencies.append(float(frequencies[j]))
             active[i].contrasts.append(float(row[peaks[j]]))
+            active[i].connections_from_previous.append(True)
             used_peaks.add(j)
         for j, peak in enumerate(peaks):
             if j not in used_peaks:
-                active.append(Ridge([frame], [float(frequencies[j])], [float(row[peak])]))
+                active.append(Ridge([frame], [float(frequencies[j])], [float(row[peak])], [False]))
     finished.extend(ridge for ridge in active if len(ridge.frames) >= 3)
     return finished
 
@@ -194,6 +203,7 @@ def score_ridge(
     time_step: float,
     frequency_step: float,
     config: DetectorConfig,
+    connection_unverified: np.ndarray | None = None,
 ) -> Candidate | None:
     """Return a strict curved event or a separate descending-tone discovery.
 
@@ -201,6 +211,14 @@ def score_ridge(
     """
     if len(times) < 6:
         return None
+    connections = (
+        np.zeros(len(times), dtype=bool)
+        if connection_unverified is None
+        else np.asarray(connection_unverified, dtype=bool).copy()
+    )
+    if len(connections) != len(times):
+        raise ValueError("tracker connection flags must match ridge observations")
+    connections[0] = False
     duration = float(np.ptp(times))
     if not config.min_duration_s <= duration <= config.max_duration_s + time_step:
         return None
@@ -260,13 +278,27 @@ def score_ridge(
     ):
         score = float(0.25 * coverage + 0.20 * monotonicity + 0.25 * shape + 0.20 * gain + 0.10 * strength)
         if score >= config.min_score:
-            return Candidate(*common[:3], fits[best], score, *common[3:], STRICT_CURVE)
+            return Candidate(
+                *common[:3],
+                fits[best],
+                score,
+                *common[3:],
+                STRICT_CURVE,
+                connection_unverified=connections,
+            )
     if movement < 0.10 or monotonicity < 0.75:
         return None
     score = float(0.35 * coverage + 0.30 * monotonicity + 0.25 * movement + 0.10 * strength)
     if score < config.min_score:
         return None
-    return Candidate(*common[:3], linear, score, *common[3:], DESCENDING_DISCOVERY)
+    return Candidate(
+        *common[:3],
+        linear,
+        score,
+        *common[3:],
+        DESCENDING_DISCOVERY,
+        connection_unverified=connections,
+    )
 
 
 def detect(spec: Spectrogram, config: DetectorConfig | None = None) -> list[Candidate]:
@@ -292,7 +324,15 @@ def detect(spec: Spectrogram, config: DetectorConfig | None = None) -> list[Cand
                 last = int(np.searchsorted(t, start + duration, side="right"))
                 windows.add((first, last))
         for first, last in sorted(windows):
-            candidate = score_ridge(t[first:last], f[first:last], c[first:last], spec.time_step, df, config)
+            candidate = score_ridge(
+                t[first:last],
+                f[first:last],
+                c[first:last],
+                spec.time_step,
+                df,
+                config,
+                np.asarray(ridge.connections_from_previous, dtype=bool)[first:last],
+            )
             if candidate is not None:
                 candidates.append(candidate)
     # Suppress duplicate subwindows only when they share time AND frequency.

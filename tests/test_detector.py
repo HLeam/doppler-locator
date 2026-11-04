@@ -6,8 +6,8 @@ from doppler_locator.detector import (
     DESCENDING_DISCOVERY,
     STRICT_CURVE,
     DetectorConfig,
-    Ridge,
     detect,
+    extract_ridges,
     score_ridge,
 )
 
@@ -124,40 +124,19 @@ def test_detect_preserves_nonoverlapping_segments_without_claiming_continuity(ma
     assert all("source_identity_unconfirmed" in event.summary()["ambiguity_flags"] for event in events)
 
 
-def test_detect_keeps_seamless_sequential_ridges_separate(monkeypatch):
-    import doppler_locator.detector as detector
+@pytest.mark.parametrize("kind", ["continuous_sweep", "seamless_handoff"])
+def test_extracted_tracker_links_remain_explicitly_unverified(make_audio, kind):
+    spec = analyze(make_audio(kind, noise=0.03))
+    ridges = extract_ridges(spec, DetectorConfig())
+    assert any(spec.times[ridge.frames[0]] < 35 < spec.times[ridge.frames[-1]] for ridge in ridges)
 
-    times = np.arange(0, 40, 0.5)
-    first_frames = list(range(40))
-    second_frames = list(range(40, len(times)))
-    first_frequencies = 510 - 4.5 * times[first_frames]
-    second_frequencies = first_frequencies[-1] - 4.5 * (times[second_frames] - times[first_frames[-1]])
-    first = Ridge(first_frames, list(first_frequencies), [8.0] * len(first_frames))
-    second = Ridge(second_frames, list(second_frequencies), [8.0] * len(second_frames))
-    spec = spectrogram_from_arrays(times)
-    monkeypatch.setattr(detector, "extract_ridges", lambda spec, config: [first, second])
-
-    events = detector.detect(spec)
-
-    assert len(events) == 2
-    assert all(event.category == DESCENDING_DISCOVERY for event in events)
-    assert events[0].times[-1] < 20
-    assert events[1].times[0] >= 20
-
-
-def spectrogram_from_arrays(times):
-    from doppler_locator.audio import Spectrogram
-
-    frequencies = np.arange(300, 601, 5, dtype=float)
-    return Spectrogram(
-        times=times,
-        frequencies=frequencies,
-        power_db=np.zeros((len(times), len(frequencies))),
-        sample_rate=4000,
-        n_fft=800,
-        hop=400,
-        frames_per_bin=5,
-    )
+    events = detect(spec)
+    crossing = [event for event in events if event.times[0] < 35 < event.times[-1]]
+    assert crossing
+    event = max(crossing, key=lambda candidate: candidate.score)
+    summary = event.summary()
+    assert summary["unverified_source_continuity_link_count"] == len(event.times) - 1
+    assert "tracker_links_source_continuity_unverified" in summary["ambiguity_flags"]
 
 
 @pytest.mark.parametrize(

@@ -28,6 +28,7 @@ COLUMNS = [
     "maximum_observation_gap_s",
     "unobserved_intervals",
     "ambiguity_flags",
+    "unverified_source_continuity_link_count",
     "start_hz",
     "end_hz",
     "drop_hz",
@@ -75,6 +76,16 @@ def plot_spectrogram(
     for candidate in candidates:
         color = "cyan" if candidate.category == STRICT_CURVE else "#ffb454"
         ax.plot(candidate.times, candidate.frequencies, ".", color=color, markersize=2)
+        if candidate.connection_unverified is not None:
+            for index in np.flatnonzero(candidate.connection_unverified[1:]) + 1:
+                ax.plot(
+                    candidate.times[index - 1 : index + 1],
+                    candidate.frequencies[index - 1 : index + 1],
+                    ":",
+                    color="white",
+                    alpha=0.65,
+                    linewidth=0.55,
+                )
         if len(candidates) <= 20:
             label = "strict curved event" if candidate.category == STRICT_CURVE else "unconfirmed descending tone"
             summary = candidate.summary()
@@ -84,7 +95,8 @@ def plot_spectrogram(
                 candidate.frequencies[0] + df * 2,
                 f"{candidate.event_id} {label}; observed={summary['observed_support_s']:.1f}s; "
                 f"gaps={len(summary['unobserved_intervals'])}; gain={candidate.curve_gain:.3f}; "
-                f"improvement={summary['curve_improvement_hz']:.2f}Hz; {flags}",
+                f"improvement={summary['curve_improvement_hz']:.2f}Hz; "
+                f"unverified links={summary['unverified_source_continuity_link_count']}; {flags}",
                 color=color,
                 fontsize=8,
             )
@@ -92,12 +104,17 @@ def plot_spectrogram(
             ax.plot(
                 candidate.times, candidate.fitted, "--", color="lime", linewidth=1, label="empirical shape"
             )
+    has_links = any(
+        candidate.connection_unverified is not None and np.any(candidate.connection_unverified)
+        for candidate in candidates
+    )
+    association_note = "; dotted links are tracker associations with unverified source continuity" if has_links else ""
     ax.set(
         xlim=(time_edges[0], time_edges[-1]),
         ylim=(freq_edges[0], freq_edges[-1]),
         xlabel="Time from recording start (minutes:seconds)",
         ylabel="Frequency (Hz)",
-        title=f"{title}\nHann FFT={spec.n_fft}; Δf={df:.2f} Hz; averaged Δt={spec.time_step:.3f} s",
+        title=f"{title}\nHann FFT={spec.n_fft}; Δf={df:.2f} Hz; averaged Δt={spec.time_step:.3f} s{association_note}",
     )
     ax.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{int(value) // 60}:{int(value) % 60:02d}"))
     fig.colorbar(image, ax=ax, label="Relative digital power (dB; not calibrated SPL)")
@@ -127,15 +144,40 @@ def write_outputs(
     with (directory / "ridges.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(
-            ["event_id", "category", "time_s", "frequency_hz", "local_contrast_db", "comparison_fit_hz"]
+            [
+                "event_id",
+                "category",
+                "point_index",
+                "association_method",
+                "connection_from_previous_s",
+                "source_continuity_unverified",
+                "time_s",
+                "frequency_hz",
+                "local_contrast_db",
+                "comparison_fit_hz",
+            ]
         )
         for candidate in candidates:
-            writer.writerows(
-                (candidate.event_id, candidate.category, *values)
-                for values in zip(
-                    candidate.times, candidate.frequencies, candidate.contrasts, candidate.fitted, strict=True
+            link_flags = candidate.connection_unverified
+            for index, (time, frequency, contrast, fit) in enumerate(
+                zip(candidate.times, candidate.frequencies, candidate.contrasts, candidate.fitted, strict=True)
+            ):
+                linked = bool(link_flags[index]) if link_flags is not None else False
+                dt = float(time - candidate.times[index - 1]) if index else 0.0
+                writer.writerow(
+                    (
+                        candidate.event_id,
+                        candidate.category,
+                        index,
+                        "minimum_cost_peak_link" if linked else "ridge_start",
+                        dt,
+                        linked,
+                        time,
+                        frequency,
+                        contrast,
+                        fit,
+                    )
                 )
-            )
     metadata.update(
         {
             "detector": asdict(config),
@@ -154,6 +196,7 @@ def write_outputs(
                 DESCENDING_DISCOVERY: "Observed descending tone with insufficient strict curvature evidence",
             },
             "score_warning": "Category-specific heuristic ranking, not a calibrated probability or source identification",
+            "association_warning": "Each linked point records a peak association; source continuity is unverified, including for adjacent frames",
             "versions": {
                 name: version(name)
                 for name in ("doppler-locator", "numpy", "scipy", "soundfile", "matplotlib")
@@ -182,6 +225,7 @@ def write_outputs(
                 f"curve gain {candidate.curve_gain:.3f}, improvement "
                 f"{candidate.summary()['curve_improvement_hz']:.2f}Hz, "
                 f"normalized error {candidate.fit_error:.3f}; "
+                f"dotted tracker links have unverified source continuity; "
                 f"ambiguity={','.join(candidate.summary()['ambiguity_flags'])}"
             ),
         )

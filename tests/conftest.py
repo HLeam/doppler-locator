@@ -11,6 +11,24 @@ def make_audio(tmp_path):
         t = np.arange(round(duration * fs)) / fs
         midpoint = duration / 2
         rng = np.random.default_rng(seed)
+        if kind in {"continuous_sweep", "seamless_handoff"}:
+            frequency = 420 - 85 * np.tanh((t - midpoint) / 8)
+            phase = 2 * np.pi * np.cumsum(frequency) / fs
+            if kind == "continuous_sweep":
+                samples = 0.15 * np.sin(phase)
+            else:
+                handoff = t >= midpoint
+                first = 0.15 * np.sin(phase) * ~handoff
+                second_phase = 1.7 + 2 * np.pi * np.cumsum(frequency[handoff]) / fs
+                second = np.zeros_like(t)
+                second[handoff] = 0.15 * np.sin(second_phase)
+                samples = first + second
+            samples += noise * rng.normal(size=len(t))
+            if stereo:
+                samples = np.column_stack((samples, -samples))
+            path = tmp_path / f"{kind}-{seed}-{fs}-{duration}-{stereo}.wav"
+            sf.write(path, samples, fs, subtype="FLOAT")
+            return path
         if kind in {"genuine_gap", "sequential_handoff"}:
             first_frequency = 520 - 4 * t
             first_active = t < 20
