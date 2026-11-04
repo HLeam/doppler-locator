@@ -1,4 +1,4 @@
-.venv/
+.venv*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -12,3 +12,12 @@ local/
 *.mp4
 *.mkv
 .DS_Store
+*.egg-info/
+build/
+dist/
+*.flac
+*.mp3
+*.ogg
+*.m4a
+*.npz
+*.npy
