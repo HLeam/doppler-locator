@@ -84,8 +84,33 @@ For an observed descending segment that fails strict curvature, a separate disco
 
 All weights/thresholds are heuristic development choices. No class probabilities, precision guarantees, aircraft labels, speed, closest approach, or coordinates follow from them. Harmonics are **not required or scored**: inspection did not establish a consistent harmonic family for both examples. Other frequencies remain available via `--fmin`/`--fmax`, but broadening the band also changes competing peaks.
 
+## Experimental acoustic Doppler fits
+
+```sh
+# Separate low-band-first preset; original CLI defaults above are unchanged.
+uv run doppler-physical --input recording.wav --output outputs/physical-hour
+uv run python scripts/evaluate_physical.py --output outputs/physical-controls
+```
+
+The physical workflow discovers candidates over **20–800 Hz**, using detection
+FFT **16384** and separate review FFT **32768**. It fits a constant-tone,
+straight-path, subsonic model with **retarded emission/receive timing**, exports
+raw observations/gaps, fitted values, residuals and bounded profile alternatives,
+and compares constant/linear trends. Sound speed defaults to an **assumed**
+343 m/s and is configurable. Possible harmonic/duplicate relations remain
+uncertain; candidate counts are not source counts.
+
+**A small fit residual does not establish source continuity or a CPA.** Partial
+curves can leave speed, range and received-CPA arrival time severely
+underconstrained. Outputs distinguish emission CPA, arrival of CPA-emitted sound,
+model inflection and arbitrary fragment midpoint. Insufficient evidence is an
+expected outcome, not a reason to force a timing estimate. This does not promise
+to find all Doppler sources or identify aircraft.
+
+See [model derivation, CLI, diagnostics and limitations](docs/physical-fitting.md).
+
 ## Source, privacy, and scope
 
 Reference: [Unknown location - raw audio](https://www.youtube.com/watch?v=4CxVxuMVkMc), approximately one hour. [Source attribution and reproducible conversion](docs/source.md) document the local reference without publishing it or any private absolute pathname. Analyze only media you own or have permission to use. Keep media and generated outputs in local ignored directories; never add raw audio/video or exact microphone coordinates to git.
 
-QGIS is the intended desktop map workspace for any later geographic work, not a browser app. This implementation is **audio-curve detection only**: no flight APIs, DEM integration, map UI, source identification or microphone-location search. The repository does not assign a license to the recording or to the project.
+QGIS is the intended desktop map workspace for any later geographic work, not a browser app. This implementation is **audio-curve discovery and conditional acoustic model fitting only**: no flight APIs, DEM integration, map UI, source identification or microphone-location search. The repository does not assign a license to the recording or to the project.
